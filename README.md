@@ -13,7 +13,7 @@
 ## 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. 点击安装：[USTC-BB-Helper.user.js](https://github.com/quantai1314/ustc-bb-helper/raw/main/USTC-BB-Helper.user.js)（或从 Greasyfork 安装，链接待补充）
+2. 从 [Greasyfork](https://greasyfork.org/zh-CN/scripts/600725-ustc-bb-helper) 安装（推荐，可自动更新），或点击安装：[USTC-BB-Helper.user.js](https://github.com/quantai1314/ustc-bb-helper/raw/main/USTC-BB-Helper.user.js)
 
 ## 说明
 
