@@ -3,9 +3,9 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.1.0
-// @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
-// @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
+// @version      1.2.0
+// @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
+// @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
 // @match        https://bb.ustc.edu.cn/*
 // @icon         https://www.bb.ustc.edu.cn/images/ci/icons/favicon.ico
@@ -83,6 +83,14 @@
         }
         if (ignored.length) localStorage.setItem('ustc-bb-ignored:' + courseId, JSON.stringify(ignored));
         else localStorage.removeItem('ustc-bb-ignored:' + courseId);
+        // 忽略状态变化会使主页未提交数失效，删除该课程的缓存以便重算
+        try {
+            const raw = JSON.parse(localStorage.getItem('ustc-bb-portal') || 'null');
+            if (raw && raw.data && raw.data[courseId]) {
+                delete raw.data[courseId];
+                localStorage.setItem('ustc-bb-portal', JSON.stringify(raw));
+            }
+        } catch (e) { /* ignore */ }
     }
 
     async function queryStatus(link) {
@@ -112,22 +120,22 @@
         }
     }
 
-    // 统计一门课作业区里「未提交」的数量（不含已忽略）；返回 { u, hw }
-    // u: 未提交数（-1 表示查询出错）；hw: 是否存在作业区
+    // 统计一门课作业区里「未提交」的数量（不含已忽略）；返回 { u, hw, url }
+    // u: 未提交数（-1 表示查询出错）；hw: 是否存在作业区；url: 作业区地址
     async function countUnsubmitted(courseId) {
         try {
             const r = await fetch(`/webapps/blackboard/execute/launcher?type=Course&id=${courseId}&url=`);
-            if (!r.ok) return { u: -1, hw: true };
+            if (!r.ok) return { u: -1, hw: true, url: null };
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const anchors = Array.from(doc.querySelectorAll('a[href*="listContent.jsp"]'));
             const hwAnchor = anchors.find(a => a.textContent.includes('作业区')) || anchors[0];
-            if (!hwAnchor) return { u: 0, hw: false };
+            if (!hwAnchor) return { u: 0, hw: false, url: null };
             const hwUrl = new URL(hwAnchor.getAttribute('href'), location.origin).href;
             const r2 = await fetch(hwUrl);
-            if (!r2.ok) return { u: -1, hw: true };
+            if (!r2.ok) return { u: -1, hw: true, url: hwUrl };
             const doc2 = new DOMParser().parseFromString(await r2.text(), 'text/html');
             const list = doc2.getElementById('content_listContainer');
-            if (!list) return { u: 0, hw: true };
+            if (!list) return { u: 0, hw: true, url: hwUrl };
             const ignored = getIgnored(courseId);
             let unsub = 0;
             const jobs = [];
@@ -142,10 +150,10 @@
                 jobs.push(queryStatus(link.href).then(([s]) => { if (s === 2) unsub++; }));
             }
             await Promise.all(jobs);
-            return { u: unsub, hw: true };
+            return { u: unsub, hw: true, url: hwUrl };
         } catch (e) {
             console.warn(`[USTC BB Helper] Query course "${courseId}" failed:`, e);
-            return { u: -1, hw: true };
+            return { u: -1, hw: true, url: null };
         }
     }
 
@@ -232,7 +240,7 @@
             badge.className = 'ustc-bb-hint ustc-bb-hint-0';
             badge.textContent = '作业查询中…';
             badge.style.cursor = 'default';
-            return { li, courseId, badge, unsub: -1, hasHw: true };
+            return { li, a, courseId, badge, unsub: -1, hasHw: true };
         }).filter(Boolean);
         if (!items.length) return;
 
@@ -270,10 +278,12 @@
             if (cached && typeof cached.u === 'number') {
                 item.unsub = cached.u;
                 item.hasHw = cached.hw;
+                if (cached.url) item.a.href = cached.url; // 直达作业区
             } else {
                 const res = await countUnsubmitted(item.courseId);
                 item.unsub = res.u;
                 item.hasHw = res.hw;
+                if (res.url) item.a.href = res.url; // 直达作业区
                 cache[item.courseId] = res;
                 saveCache();
                 log(`Course ${item.courseId}: ${res.hw ? `unsubmitted ${res.u}` : 'no homework area'}.`);
