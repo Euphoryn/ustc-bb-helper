@@ -3,7 +3,7 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.2.1
+// @version      1.2.2
 // @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
 // @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
@@ -33,7 +33,8 @@
     const isContentList = path === '/webapps/blackboard/content/listContent.jsp'
         || path === '/webapps/blackboard/content/listContentEditable.jsp';
     const isPortal = path === '/webapps/portal/execute/tabs/tabAction';
-    if (!isContentList && !isPortal) return;
+    const isAssignment = path.startsWith('/webapps/assignment/');
+    if (!isContentList && !isPortal && !isAssignment) return;
 
     // ---------- 共用 ----------
     const css = document.createElement('style');
@@ -72,6 +73,30 @@
         }
     }
 
+    const today = new Date().toLocaleDateString('sv'); // YYYY-MM-DD 本地时区
+
+    // 使主页缓存中某门课的条目失效（忽略/提交作业后数目会变）
+    function invalidatePortal(courseId) {
+        try {
+            const raw = JSON.parse(localStorage.getItem('ustc-bb-portal') || 'null');
+            if (raw && raw.data && raw.data[courseId]) {
+                delete raw.data[courseId];
+                localStorage.setItem('ustc-bb-portal', JSON.stringify(raw));
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    // 用作业区的实时统计结果回写主页缓存（仅当缓存是今天的，否则主页会全量重查）
+    function syncPortalCount(courseId, unsub, url) {
+        try {
+            const raw = JSON.parse(localStorage.getItem('ustc-bb-portal') || 'null');
+            if (raw && raw.date === today && raw.data) {
+                raw.data[courseId] = { u: unsub, hw: true, url };
+                localStorage.setItem('ustc-bb-portal', JSON.stringify(raw));
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     function ignoreHw(courseId, contentId, ignore) {
         let ignored = getIgnored(courseId);
         if (ignore && !ignored.includes(contentId)) {
@@ -83,14 +108,6 @@
         }
         if (ignored.length) localStorage.setItem('ustc-bb-ignored:' + courseId, JSON.stringify(ignored));
         else localStorage.removeItem('ustc-bb-ignored:' + courseId);
-        // 忽略状态变化会使主页未提交数失效，删除该课程的缓存以便重算
-        try {
-            const raw = JSON.parse(localStorage.getItem('ustc-bb-portal') || 'null');
-            if (raw && raw.data && raw.data[courseId]) {
-                delete raw.data[courseId];
-                localStorage.setItem('ustc-bb-portal', JSON.stringify(raw));
-            }
-        } catch (e) { /* ignore */ }
     }
 
     async function queryStatus(link) {
@@ -167,6 +184,16 @@
             return;
         }
 
+        // 记录每个作业的实时状态，全部查询完成后回写主页缓存的未提交数
+        const counts = new Map(); // contentId -> status
+        let pending = 0;
+        function syncPortal(courseId) {
+            if (pending) return;
+            let unsub = 0;
+            for (const s of counts.values()) if (s === 2) unsub++;
+            syncPortalCount(courseId, unsub, location.href);
+        }
+
         async function process(hw) {
             const linkEl = hw.querySelector('h3 > a');
             if (!linkEl) return;
@@ -182,6 +209,7 @@
             const params = new URL(link).searchParams;
             const courseId = params.get('course_id');
             const contentId = params.get('content_id');
+            pending++;
             let ignored = getIgnored(courseId).includes(contentId);
             if (ignored) {
                 status = 4;
@@ -195,6 +223,9 @@
                 else if (status === 3) console.warn(`[USTC BB Helper] Online query "${courseId}/${contentId}" failed!`);
             }
             setHint(status, extra);
+            counts.set(contentId, status);
+            pending--;
+            syncPortal(courseId);
             hint.title = ignored ? '点击取消忽略此作业' : '点击忽略此作业';
             hint.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -205,11 +236,20 @@
                     linkEl.closest('li')?.classList.add('ustc-bb-ignored');
                     setHint(4);
                     hint.title = '点击取消忽略此作业';
+                    counts.set(contentId, 4);
+                    syncPortal(courseId);
                 } else {
                     linkEl.closest('li')?.classList.remove('ustc-bb-ignored');
                     setHint(0);
                     hint.title = '点击忽略此作业';
-                    queryStatus(link).then(([s, ex]) => setHint(s, ex));
+                    counts.set(contentId, 0);
+                    pending++;
+                    queryStatus(link).then(([s, ex]) => {
+                        setHint(s, ex);
+                        counts.set(contentId, s);
+                        pending--;
+                        syncPortal(courseId);
+                    });
                 }
             });
         }
@@ -245,7 +285,6 @@
         if (!items.length) return;
 
         // 当日缓存：同一天内不重复查询
-        const today = new Date().toLocaleDateString('sv'); // YYYY-MM-DD 本地时区
         let cache = {};
         try {
             const raw = JSON.parse(localStorage.getItem('ustc-bb-portal') || 'null');
@@ -306,5 +345,10 @@
     }
 
     if (isContentList) initHwList();
-    else initPortal();
+    else if (isPortal) initPortal();
+    else {
+        // 查看/提交作业后状态可能变化，使主页缓存中该课程的数目失效
+        const cid = new URLSearchParams(location.search).get('course_id');
+        if (cid) invalidatePortal(cid);
+    }
 })();
