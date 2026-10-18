@@ -3,7 +3,7 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.2.0
+// @version      1.2.1
 // @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
 // @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
@@ -275,7 +275,8 @@
 
         const jobs = items.map(async (item) => {
             const cached = cache[item.courseId];
-            if (cached && typeof cached.u === 'number') {
+            // 旧版本缓存没有 url 字段，视为过期并重新查询
+            if (cached && typeof cached.u === 'number' && 'url' in cached) {
                 item.unsub = cached.u;
                 item.hasHw = cached.hw;
                 if (cached.url) item.a.href = cached.url; // 直达作业区
