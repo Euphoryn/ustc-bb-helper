@@ -3,9 +3,9 @@
 // @name:zh-CN   USTC BB 助手
 // @license      gpl-3.0
 // @namespace    ustc-bb-helper
-// @version      1.2.2
-// @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
-// @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
+// @version      1.3.0
+// @description  Enhancements for USTC Blackboard: homework status badges (submitted / not submitted / graded), homepage courses sorted by unsubmitted homework with direct links to the homework area, personalized homepage color theme applied to all pages, auto login, auto authentication off campus. Standalone bb module based on PRO's USTC Helper (GPL-3.0), no external dependencies.
+// @description:zh-CN  为中科大 bb 网络教学平台增强：作业区自动标注提交状态（已提交/未提交/已评分），支持点击忽略作业；主页「当前学期课程」按未提交作业数排序并显示数量徽章，点击课程直达作业区；主页个性化主题颜色全站生效；自动点击统一身份认证登录；校外访问自动认证。基于 PRO 的 USTC Helper (GPL-3.0) bb 模块修复而来，无任何外部依赖。
 // @match        https://www.bb.ustc.edu.cn/*
 // @match        https://bb.ustc.edu.cn/*
 // @icon         https://www.bb.ustc.edu.cn/images/ci/icons/favicon.ico
@@ -34,6 +34,27 @@
         || path === '/webapps/blackboard/content/listContentEditable.jsp';
     const isPortal = path === '/webapps/portal/execute/tabs/tabAction';
     const isAssignment = path.startsWith('/webapps/assignment/');
+
+    // ---------- 主题跟随：主页个性化配色应用到所有页面 ----------
+    // BB 只给主页加载 /colorpalettes/<主题>/generated/colorpalette.generated.modern.css
+    const themeLink = document.querySelector('link[href*="/colorpalettes/"]');
+    if (isPortal) {
+        // 记录当前主题；主页换主题（或换回无主题的默认样式）后打开一次主页即更新
+        try {
+            if (themeLink) localStorage.setItem('ustc-bb-theme', themeLink.href);
+            else localStorage.removeItem('ustc-bb-theme');
+        } catch (e) { /* ignore */ }
+    } else if (!themeLink) {
+        let themeHref = null;
+        try { themeHref = localStorage.getItem('ustc-bb-theme'); } catch (e) { /* ignore */ }
+        if (themeHref) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = themeHref;
+            document.head.appendChild(link); // 追加在最后，覆盖默认配色
+        }
+    }
+
     if (!isContentList && !isPortal && !isAssignment) return;
 
     // ---------- 共用 ----------
